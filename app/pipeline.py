@@ -4,6 +4,7 @@ from app.errors import DomainError
 from app.values import scalar
 from app.manifest import digest,manifest
 from app import store
+from app.measurement import summarize
 from app.modules.m1_claims.rules import evaluate as stage1
 from app.modules.m2_billitems.rules import evaluate as stage2
 from app.modules.m3_changes.rules import evaluate as stage3
@@ -25,7 +26,15 @@ def calculate(raw,params=None,stop=6):
         result["cumulative_quarantine"]=list(context["quarantine"])
         context[MODULES[index][0]]=result
         stages.append(result)
-    return {"run_id":digest(raw,params)[:20],"stages":stages,"manifest":manifest(raw,params,started),"parameters":params}
+    result={"run_id":digest(raw,params)[:20],"stages":stages,"manifest":manifest(raw,params,started),"parameters":params}
+    result["measurement"]=measurement_of(result)
+    return result
+def measurement_of(run):
+    stages=run.get("stages") or []
+    rows=stages[-1]["rows"] if stages else []
+    measurement=summarize(rows,run.get("decision"))
+    measurement["unmatched"]=len(stages[-1].get("cumulative_quarantine",[])) if stages else 0
+    return measurement
 def execute(raw,params=None):
     result=calculate(raw,params);return store.save(result["run_id"],result)
 def stage_preview(index,payload):

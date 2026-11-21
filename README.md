@@ -23,20 +23,21 @@ docker compose exec -T app pytest -q
 
 ## 核心规则
 
-累计申报必须减前期已审金额，变更按审批生效版本覆盖；负进度需关联冲回证据。
+累计申报必须减前期已审金额，变更按审批生效版本覆盖；负进度需关联冲回证据。补充变更只改单价，按生效月份接管，未重述的数量上限与冲回规则向原变更继承，额度在原变更链上累计。工作台按变更链归并为唯一可签认的本期计量结果，发布重试不重复计量，失败保留旧版。
 
 ## 演示
 
-1. 打开首页，核对当次计算、差异和隔离原因。
+1. 打开首页，核对本期计量结果（现行变更、继承条款、生效区间、未签认余量）。
 2. 切换模块查看源行及裁决依据。
 3. 重跑相同样例，批次号与行数保持一致。
-4. 复核后导出一份证据CSV。版本已变化的复核提交返回409。
+4. 点击“发布本期”生成唯一结果；“签认”需版本号，重复签认返回409。
+5. 复核后导出一份证据CSV，含每笔申报的适用版本与条款来源。
 
 ## 输入与输出
 
 输入列见 `docs/DATA-DICTIONARY.md`。项目包含dirty.csv、clean.csv、legacy.csv，统一走实际导入路径。上传限制4MB，拒绝不带时区的时间。业务键按字符串保留，Decimal参与计算，空值不会当零。
 
-`POST /api/runs` 接收sample或csv；`GET /api/runs`返回历史批次；`POST /api/runs/<id>/review`需要version与decision；`GET /api/runs/<id>/archive`返回唯一证据导出。
+`POST /api/runs` 接收sample或csv；`GET /api/runs`返回历史批次；`POST /api/runs/<id>/review`需要version与decision；`POST /api/runs/<id>/publish`发布本期计量结果；`POST /api/publications/<result_id>/sign`签认；`GET /api/runs/<id>/archive`返回唯一证据导出。
 
 ## 范围
 

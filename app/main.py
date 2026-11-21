@@ -3,7 +3,13 @@ from app.config import ROOT,DATA_DIR,MODULES
 from app.errors import DomainError
 from app import pipeline,store
 from app.web import register_pages
-import importlib
+import hashlib,json,importlib
+VOLATILE={"signed","decision","published","publication_version","active_publication"}
+def signature_of(run,measurement):
+    "发布签名只看计量内容与规则版本；同源重算或重新导入不会产生假冲突。"
+    core={k:v for k,v in measurement.items() if k not in VOLATILE}
+    body=json.dumps(core,sort_keys=True,ensure_ascii=False,default=str,separators=(",",":"))
+    return hashlib.sha256((run["manifest"]["rule_version"]+"\n"+body).encode()).hexdigest()
 def create_app():
     application=Flask(__name__,template_folder="templates",static_folder="static")
     application.config["MAX_CONTENT_LENGTH"]=4*1024*1024
@@ -40,6 +46,30 @@ def create_app():
         p=request.get_json(silent=True) or {}
         if not isinstance(p.get("version"),int): raise DomainError("BAD_VERSION","请提供版本号")
         return store.review(run_id,p["version"],p.get("decision"))
+    @application.post("/api/runs/<run_id>/publish")
+    def publish(run_id):
+        """发布本期计量结果；失败保留旧版，同一结果重试只留一条。"""
+        run=store.get(run_id)
+        measurement=dict(run.get("measurement") or pipeline.measurement_of(run))
+        if not measurement.get("chains"):
+            raise DomainError("NOT_MEASURABLE","本期没有可签认的计量结果")
+        for key in VOLATILE: measurement.pop(key,None)
+        published=store.publish(run_id,signature_of(run,measurement),measurement)
+        return {**published,"measurement":measurement}
+    @application.get("/api/runs/<run_id>/publications")
+    def publications(run_id):
+        store.get(run_id)
+        return {"publications":store.publications_for(run_id)}
+    @application.get("/api/publications/<result_id>")
+    def publication(result_id):
+        record=store.publication(result_id)
+        if not record: raise DomainError("NOT_FOUND","计量结果未发布",404)
+        return record
+    @application.post("/api/publications/<result_id>/sign")
+    def sign(result_id):
+        p=request.get_json(silent=True) or {}
+        if not isinstance(p.get("version"),int): raise DomainError("BAD_VERSION","请提供版本号")
+        return store.sign(result_id,p["version"],p.get("decision","已复核"))
     @application.get("/api/runs/<run_id>/archive")
     def archive(run_id):
         from app.archive import build_archive
